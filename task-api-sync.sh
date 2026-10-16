@@ -77,4 +77,7 @@ if ! git push origin "$BRANCH" 2>"$ERR_DIR/push.err"; then
 fi
 
 echo "sync OK: $BEFORE -> $AFTER"
-[ -n "$CHANGED" ] && echo "changed: $CHANGED"
+if [ -n "$CHANGED" ]; then
+  echo "changed: $CHANGED"
+fi
+exit 0
