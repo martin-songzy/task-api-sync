@@ -18,6 +18,10 @@ LABEL="${TASK_API_ACCOUNT_LABEL:-$(cat "$API_DIR/.account-label" 2>/dev/null || 
 BRANCH="main"
 cd "$API_DIR"
 
+# 错误输出进 /tmp，不进仓库（否则下次 add -A 会把它们误提交）
+ERR_DIR="$(mktemp -d /tmp/task-api-sync-XXXXXX)"
+trap 'rm -rf "$ERR_DIR"' EXIT
+
 # 未配置同步目标：静默退出（bootstrap 完成前是正常状态）
 git remote get-url origin >/dev/null 2>&1 || { echo "no origin remote configured"; exit 0; }
 
@@ -46,10 +50,10 @@ fi
 
 # 4) 变基拉取远端（保持线性历史，避免无意义的 merge commit）
 BEFORE="$(git rev-parse HEAD)"
-if ! git pull --rebase --autostash origin "$BRANCH" 2>pull.err; then
+if ! git pull --rebase --autostash origin "$BRANCH" 2>"$ERR_DIR/pull.err"; then
   git rebase --abort 2>/dev/null || true
   echo "PULL FAILED (rebase aborted, workdir clean):" >&2
-  cat pull.err >&2
+  cat "$ERR_DIR/pull.err" >&2
   exit 2
 fi
 AFTER="$(git rev-parse HEAD)"
@@ -66,9 +70,9 @@ for f in task-inbox.sh task-api-watchdog.sh task-api-sync-hook.sh; do
 done
 
 # 6) 推送
-if ! git push origin "$BRANCH" 2>push.err; then
+if ! git push origin "$BRANCH" 2>"$ERR_DIR/push.err"; then
   echo "PUSH FAILED:" >&2
-  cat push.err >&2
+  cat "$ERR_DIR/push.err" >&2
   exit 3
 fi
 
