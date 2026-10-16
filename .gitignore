@@ -1,0 +1,21 @@
+# ============ 密钥：永不入库，各账号独立 ============
+.token
+
+# ============ 运行状态：各账号独立，不同步 ============
+tasks/
+files/
+logs/
+context.jsonl
+conversations.json
+public-url.txt
+*.log
+*.lock
+.tunnel_log_offset
+
+# ============ 二进制与依赖：bootstrap 时重新获取 ============
+ngrok-bin/
+node_modules/
+tunnel-pkg/
+
+# ============ 遗留 localtunnel 残留（已由 ngrok 取代，不再维护） ============
+start-tunnel.sh
