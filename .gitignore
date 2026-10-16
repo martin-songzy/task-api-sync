@@ -19,3 +19,5 @@ tunnel-pkg/
 
 # ============ 遗留 localtunnel 残留（已由 ngrok 取代，不再维护） ============
 start-tunnel.sh
+.public-domain
+.account-label

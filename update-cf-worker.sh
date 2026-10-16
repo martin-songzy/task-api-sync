@@ -8,7 +8,11 @@ NEW_URL="${1:?usage: update-cf-worker.sh <new-ngrok-url>}"
 CFG="$HOME/.config/cloudflare"
 TOKEN_FILE="$CFG/token"
 ACCT_FILE="$CFG/account_id"
-SCRIPT="task-api-proxy"
+# Worker 脚本名：默认 task-api-proxy。若两账号共用同一个 Cloudflare 账号，
+# 在 ~/.config/task-api/worker_name 里写不同名字（如 task-api-proxy-b），避免部署时互相覆盖。
+# 优先级：环境变量 TASK_API_WORKER_NAME > 配置文件 > 默认值。
+CFG_NAME="$(cat "$HOME/.config/task-api/worker_name" 2>/dev/null || true)"
+SCRIPT="${TASK_API_WORKER_NAME:-${CFG_NAME:-task-api-proxy}}"
 TEMPLATE="$HOME/workspace/task-api/cf-worker/worker.js"
 
 [ -f "$TOKEN_FILE" ] || { echo "missing $TOKEN_FILE" >&2; exit 1; }
