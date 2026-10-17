@@ -20,6 +20,8 @@ tunnel_healthy() {
 }
 
 ensure_tunnel() {
+  # 本账号若改用其他隧道（如 WebSocket），建 ~/.config/task-api/no-ngrok 即跳过 ngrok 分支
+  [ -f "$HOME/.config/task-api/no-ngrok" ] && return 0
   if tunnel_healthy; then
     return 0
   fi
@@ -40,6 +42,7 @@ ensure_tunnel() {
 # 流量级检查：隧道数据连接可能静默失效（进程活着，公网却不通）
 # 每 5 次轮询检查一次公网 /health，失败则重启隧道
 check_tunnel_traffic() {
+  [ -f "$HOME/.config/task-api/no-ngrok" ] && return 0
   local counter_file="$STATE_DIR/traffic_check_counter"
   local n=$(( $(cat "$counter_file" 2>/dev/null || echo 0) + 1 ))
   if [ "$n" -ge 5 ]; then n=0; fi
