@@ -16,7 +16,7 @@
 //   GET  /v1/messages/:message_id/suggested  推荐问题（暂返回空列表）
 //   POST /v1/messages/:message_id/feedbacks  对结果打分（like/dislike，null 撤销）
 //   GET  /v1/parameters  /v1/meta  /v1/info  应用元信息
-//   GET  /v1/files/:name  图片/视频文件下载（图片/视频结果规范，需鉴权）
+//   GET  /v1/files/:name  文件下载（图片/视频/其他文件结果规范，需鉴权）
 //   POST /v1/files/upload  图片上传（multipart/form-data，仅图片 ≤10MB，Dify 兼容，需鉴权）
 //   错误格式统一为 Dify 风格：{"status": <http>, "code": "<snake>", "message": "<原因>"}
 //   （多了 status 字段；code 命名为 muse 方言，见 API.md）
@@ -48,12 +48,24 @@ if (!TOKEN) {
 fs.mkdirSync(TASKS_DIR, { recursive: true });
 fs.mkdirSync(FILES_DIR, { recursive: true });
 
-// 图片文件名白名单：字母数字开头，仅含字母/数字/点/下划线/连字符（防路径穿越）
+// 结果文件名白名单：字母数字开头，仅含字母/数字/点/下划线/连字符（防路径穿越）
 const FILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const FILE_CT = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp',
   '.mp4': 'video/mp4', '.webm': 'video/webm',
+  '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8',
+  '.json': 'application/json', '.xml': 'application/xml',
+  '.zip': 'application/zip', '.gz': 'application/gzip', '.tar': 'application/x-tar',
+  '.7z': 'application/x-7z-compressed', '.rar': 'application/vnd.rar',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.epub': 'application/epub+zip',
 };
 
 // 上传限制：仅图片，单文件 ≤10MB
@@ -863,7 +875,7 @@ const server = http.createServer(async (req, res) => {
       return; // 响应在 finish/fail 回调中发出
     }
 
-    // 图片/视频文件下载（图片/视频结果规范：文件名白名单校验 + 仅读 files/ 目录，需 Bearer 鉴权）
+    // 文件下载（图片/视频/其他文件结果规范：文件名白名单校验 + 仅读 files/ 目录，需 Bearer 鉴权）
     if (req.method === 'GET' && url.pathname.startsWith('/v1/files/')) {
       const name = decodeURIComponent(url.pathname.slice('/v1/files/'.length));
       if (!FILE_NAME_RE.test(name)) {

@@ -32,7 +32,7 @@ Token 保管在服务器 `~/workspace/task-api/.token`（权限 600）。调用�
 | `GET` | `/v1/parameters` | 是 | 应用能力参数 |
 | `GET` | `/v1/meta` | 是 | 应用 meta |
 | `GET` | `/v1/info` | 是 | 应用信息 |
-| `GET` | `/v1/files/:name` | 是 | 图片/视频文件下载（图片/视频结果规范） |
+| `GET` | `/v1/files/:name` | 是 | 文件下载（图片/视频/其他文件结果规范） |
 | `POST` | `/v1/files/upload` | 是 | 图片上传（multipart，仅图片 ≤10MB，Dify 兼容） |
 
 ## 发送消息（下发任务）
@@ -370,6 +370,34 @@ curl -X POST "$BASE/v1/chat-messages" \
 视频文件(https://muse_api.x24hrcom.dpdns.org/v1/files/4c12af30-9e16-1.mp4)
 ```
 
+## 其他文件结果规范
+
+当任务产出图片/视频之外的文件内容（如 PDF 报告、CSV 表格、压缩包等）时，接口统一用以下**固定格式**返回，方便下游程序识别：
+
+```
+其他文件(<url>)
+```
+
+规则：
+
+- `其他文件` 四个字固定不变，后跟半角括号，括号内是文件的公网 `https` 绝对地址。
+- 适用于所有返回答案的位置：blocking 响应的 `data.answer`、streaming 的 `agent_message` 事件 `answer`、历史消息的 `answer`。
+- 一个文件占一行；多个文件用多行，每行都是严格的 `其他文件(<url>)`。
+- 允许文字说明与文件混排，但文件行必须独占一行、以 `其他文件(` 开头。
+- 下游识别正则（按行匹配）：`^其他文件\((https?://[^)\s]+)\)$`
+- 文件由执行器保存到服务端的 `files/` 目录，文件名规范为 `<任务uuid>-<序号>.<扩展名>`（如 `4c12af30-…-1.pdf`），仅允许字母、数字、点、下划线、连字符。
+- 文件通过 `GET /v1/files/:name` 下载（需 Bearer 鉴权，与其它 `/v1` 接口一致），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（常见文档/压缩包类型已映射，未知类型回 `application/octet-stream`），文件名非法返回 `400`，文件不存在返回 `404`。
+- 安全注意：文件可能含私密内容，下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存，每次下载都重新鉴权。不要把 `files/` 下的文件放到公开免鉴权路径。
+- 本规范是 muse 自有约定（Dify 官方 API 无通用文件结果标准）。
+
+示例（任务返回一份 PDF 报告和一个 CSV）：
+
+```text
+已生成本月销售汇总报告：
+其他文件(https://muse_api.x24hrcom.dpdns.org/v1/files/4c12af30-9e16-1.pdf)
+其他文件(https://muse_api.x24hrcom.dpdns.org/v1/files/4c12af30-9e16-2.csv)
+```
+
 ## 错误码
 
 v1 错误体为 `{"status":<HTTP>,"code":"<snake_case>","message":"<原因>"}`。
@@ -391,7 +419,7 @@ v1 错误体为 `{"status":<HTTP>,"code":"<snake_case>","message":"<原因>"}`�
 
 - `user` 在 Dify 中多处必填；本接口为兼容现有调用方保持选填，传入后按用户隔离过滤会话/消息。
 - `metadata.usage` 的 token 计数恒为 0（自研执行器，无模型计费统计），不要用于成本核算。
-- 文件上传与附件：支持 `POST /v1/files/upload`（仅图片 ≤10MB，Dify 兼容；见「文件上传」一节），上传后可在 `POST /v1/chat-messages` 的 `files` 参数中按 `upload_file_id` 引用（`type` 仅 `image`、`transfer_method` 仅 `local_file`，单个任务最多 5 个，服务端校验 id 真实存在，否则 `400`）。执行器按 id 精确读取 `files/` 下对应图片处理；若任务文本要求处理上传图片但未传 `files`，执行器会直接标记失败，**严禁**按「最新上传文件」猜测（猜错会产出看似正确实则错误的答案，比报错危害大）。`GET /v1/parameters` 中文件上传能力声明为图片 `local_file` 可用。另见「图片结果规范」「视频结果规范」：`GET /v1/files/:name` 是 muse 自有的图片/视频结果下载接口（非 Dify 标准）。
+- 文件上传与附件：支持 `POST /v1/files/upload`（仅图片 ≤10MB，Dify 兼容；见「文件上传」一节），上传后可在 `POST /v1/chat-messages` 的 `files` 参数中按 `upload_file_id` 引用（`type` 仅 `image`、`transfer_method` 仅 `local_file`，单个任务最多 5 个，服务端校验 id 真实存在，否则 `400`）。执行器按 id 精确读取 `files/` 下对应图片处理；若任务文本要求处理上传图片但未传 `files`，执行器会直接标记失败，**严禁**按「最新上传文件」猜测（猜错会产出看似正确实则错误的答案，比报错危害大）。`GET /v1/parameters` 中文件上传能力声明为图片 `local_file` 可用。另见「图片结果规范」「视频结果规范」：`GET /v1/files/:name` 是 muse 自有的图片/视频/其他文件结果下载接口（非 Dify 标准）。
 - 不支持 `POST /v1/completion-messages`（文本补全模式）；本接口定位为 Agent 任务执行。
 - 不支持会话变量（`GET/PUT /v1/conversations/:id/variables`）、应用反馈列表（`GET /v1/app/feedbacks`）。
 - 推荐问题接口存在但返回空列表（暂不生成推荐追问）。
