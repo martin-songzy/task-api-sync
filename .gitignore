@@ -7,6 +7,7 @@ files/
 logs/
 context.jsonl
 conversations.json
+side-chats.json
 public-url.txt
 *.log
 *.lock
