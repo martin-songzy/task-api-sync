@@ -15,6 +15,7 @@ public-url.txt
 
 # ============ 二进制与依赖：bootstrap 时重新获取 ============
 ngrok-bin/
+cloudflared-bin/
 node_modules/
 tunnel-pkg/
 
