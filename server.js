@@ -285,7 +285,9 @@ function authorized(req) {
 
 // 文件下载：文件名白名单校验 + 仅读 files/ 目录；调用方决定是否先过鉴权闸门
 // （图片/视频免鉴权直达，其他文件鉴权后才走到这里）
-function serveDownload(res, name) {
+// 支持 HEAD 与 Range（206）：很多播放器（Safari/iOS、内嵌 WebView 等）先发 HEAD 探测、
+// 再用 Range 分段取流，缺了这两样会直接报"打不开"，哪怕整文件 GET 下载完全正常。
+function serveDownload(req, res, name) {
   if (!FILE_NAME_RE.test(name)) {
     return difyErr(res, 400, 'invalid_param', 'Invalid file name.');
   }
@@ -294,8 +296,45 @@ function serveDownload(res, name) {
   try { st = fs.statSync(fp); } catch { /* 不存在 */ }
   if (!st || !st.isFile()) return difyErr(res, 404, 'not_found', 'File not found.');
   const ct = FILE_CT[path.extname(name).toLowerCase()] || 'application/octet-stream';
+  const size = st.size;
   // no-store：禁止 Cloudflare 边缘及任何中间缓存留存，每次下载都回源取最新文件
-  res.writeHead(200, { 'Content-Type': ct, 'Content-Length': st.size, 'Cache-Control': 'no-store' });
+  const base = { 'Content-Type': ct, 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes' };
+  if (req.method === 'HEAD') {
+    res.writeHead(200, { ...base, 'Content-Length': size });
+    return res.end();
+  }
+  const range = req.headers && req.headers.range;
+  if (typeof range === 'string') {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (m && (m[1] !== '' || m[2] !== '')) {
+      let start;
+      let end;
+      if (m[1] === '') {
+        const suffix = Number(m[2]);
+        if (!Number.isFinite(suffix) || suffix <= 0) {
+          res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+          return res.end();
+        }
+        start = Math.max(0, size - suffix);
+        end = size - 1;
+      } else {
+        start = Number(m[1]);
+        end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+      }
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start >= size || end < start) {
+        res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+        return res.end();
+      }
+      res.writeHead(206, {
+        ...base,
+        'Content-Range': `bytes ${start}-${end}/${size}`,
+        'Content-Length': end - start + 1,
+      });
+      return fs.createReadStream(fp, { start, end }).pipe(res);
+    }
+    // 无法解析的 Range 头忽略，按整文件 200 返回（浏览器通用容错做法）
+  }
+  res.writeHead(200, { ...base, 'Content-Length': size });
   return fs.createReadStream(fp).pipe(res);
 }
 
@@ -518,11 +557,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 图片/视频下载免鉴权：先于鉴权闸门处理；其他扩展名不匹配则落到闸门后按鉴权下载
-    if (req.method === 'GET' && url.pathname.startsWith('/v1/files/')) {
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname.startsWith('/v1/files/')) {
       let pubName = null;
       try { pubName = decodeURIComponent(url.pathname.slice('/v1/files/'.length)); } catch { pubName = null; }
       if (pubName && PUBLIC_MEDIA_EXTS.has(path.extname(pubName).toLowerCase())) {
-        return serveDownload(res, pubName);
+        return serveDownload(req, res, pubName);
       }
     }
 
@@ -908,9 +947,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 文件下载（鉴权后到达此处的是其他文件；图片/视频已在鉴权闸门前免鉴权处理）
-    if (req.method === 'GET' && url.pathname.startsWith('/v1/files/')) {
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname.startsWith('/v1/files/')) {
       const name = decodeURIComponent(url.pathname.slice('/v1/files/'.length));
-      return serveDownload(res, name);
+      return serveDownload(req, res, name);
     }
 
     // ============ 未知路径 ============

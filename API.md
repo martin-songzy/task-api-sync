@@ -361,6 +361,7 @@ curl -X POST "$BASE/v1/chat-messages" \
 - 视频文件由执行器保存到服务端的 `files/` 目录，文件名规范为 `<任务uuid>-<序号>.mp4`（或 `.webm`)，仅允许字母、数字、点、下划线、连字符。
 - 视频通过 `GET /v1/files/:name` 下载（**免 Bearer 鉴权**，知道链接即可下载，方便浏览器、`<video>` 标签与下游程序直接取用），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（mp4/webm），文件名非法返回 `400`，文件不存在返回 `404`。
 - 安全注意：视频下载免鉴权，凭链接即可获取；文件名含任务 UUID、不可猜测，但**不要把链接扩散给无关人员**。下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存。
+- 播放兼容：下载接口支持 `HEAD` 探测与 `Range` 分段请求（`206` + `Accept-Ranges: bytes`）——Safari/iOS、内嵌 WebView 等播放器依赖这两样，缺失时会直接报打不开（哪怕整文件 GET 下载完全正常）。图片与其他文件下载同样支持。
 - 本规范是 muse 自有约定（Dify 官方 API 无视频结果标准）。
 
 示例：
