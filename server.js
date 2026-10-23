@@ -326,6 +326,9 @@ function createChatTask({ query, inputs, conversation_id, user, files }) {
     query,
     inputs: inputs || {},
     conversation_id: convId,
+    // 调用方是否显式传入 conversation_id（false = 服务端自动生成新会话）。
+    // 旁聊归档据此分组：显式会话按会话归档，未传的全部并入同一个共用旁聊。
+    conversation_id_provided: !!conversation_id,
     user: user || null,
     files: files || [], // 经校验的附件（upload_file_id + stored_name），执行器按 stored_name 精确读取
     status: 'pending', // pending -> running -> done | failed；pending 可被 stop 为 stopped
