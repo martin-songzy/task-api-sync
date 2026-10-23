@@ -556,6 +556,25 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, time: new Date().toISOString() });
     }
 
+    // 文件下载的 CORS：Muse 应用内嵌播放器等跨源播放器取流需要 CORS 许可，
+    // 否则浏览器直接拦截（播放器黑屏/打不开），而直接导航打开不需要——两者表现不同。
+    // OPTIONS 预检不带凭证，必须在鉴权闸门之前放行。
+    if (url.pathname.startsWith('/v1/files/')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Headers': 'Authorization, Range, Content-Type',
+          'Access-Control-Max-Age': '86400',
+          'Content-Length': '0',
+        });
+        return res.end();
+      }
+    }
+
     // 图片/视频下载免鉴权：先于鉴权闸门处理；其他扩展名不匹配则落到闸门后按鉴权下载
     if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname.startsWith('/v1/files/')) {
       let pubName = null;
