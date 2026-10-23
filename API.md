@@ -10,7 +10,7 @@
 | 本地地址 | `http://127.0.0.1:8787`（服务仅监听本机） |
 | 公网地址（固定） | `https://muse_api.x24hrcom.dpdns.org`（Cloudflare Worker 反向代理，长期有效） |
 | 公网地址（临时） | 见 `~/workspace/task-api/public-url.txt`（ngrok 隧道，免费版重启后地址会变） |
-| 鉴权 | `Authorization: Bearer <token>` 请求头（`/health` 除外） |
+| 鉴权 | `Authorization: Bearer <token>` 请求头（`/health` 除外；图片/视频文件下载免鉴权，见图片/视频结果规范） |
 | 数据格式 | 请求/响应均为 JSON，`Content-Type: application/json` |
 | 错误格式 | Dify 风格：`{"status": <http状态码>, "code": "<snake_case>", "message": "<原因>"}` |
 
@@ -32,7 +32,7 @@ Token 保管在服务器 `~/workspace/task-api/.token`（权限 600）。调用�
 | `GET` | `/v1/parameters` | 是 | 应用能力参数 |
 | `GET` | `/v1/meta` | 是 | 应用 meta |
 | `GET` | `/v1/info` | 是 | 应用信息 |
-| `GET` | `/v1/files/:name` | 是 | 文件下载（图片/视频/其他文件结果规范） |
+| `GET` | `/v1/files/:name` | 图片/视频否，其他文件是 | 文件下载（图片/视频/其他文件结果规范） |
 | `POST` | `/v1/files/upload` | 是 | 图片上传（multipart，仅图片 ≤10MB，Dify 兼容） |
 
 ## 发送消息（下发任务）
@@ -294,7 +294,7 @@ curl -X POST "$BASE/v1/chat-messages/<task_id>/stop" \
 ```
 
 - 文件名按 UTF-8 还原：multipart 的 `filename` 头按 latin-1 传输，服务端会按 UTF-8 解码后再返回（如 `控制台.png` 不会再乱码）。
-- 上传的图片存入服务端 `files/` 目录，文件名为 `<id>.<extension>`，可直接用 `GET /v1/files/:name` 下载（同样需要鉴权、同样 `no-store`）。下载地址：`https://muse_api.x24hrcom.dpdns.org/v1/files/<id>.<extension>`。
+- 上传的图片存入服务端 `files/` 目录，文件名为 `<id>.<extension>`，可直接用 `GET /v1/files/:name` 下载（图片下载免鉴权、同样 `no-store`）。下载地址：`https://muse_api.x24hrcom.dpdns.org/v1/files/<id>.<extension>`。
 
 curl 示例：
 
@@ -332,8 +332,8 @@ curl -X POST "$BASE/v1/chat-messages" \
 - 允许文字说明与图片混排，但图片行必须独占一行、以 `图片文件(` 开头。
 - 下游识别正则（按行匹配）：`^图片文件\((https?://[^)\s]+)\)$`
 - 图片文件由执行器保存到服务端的 `files/` 目录，文件名规范为 `<任务uuid>-<序号>.<扩展名>`（如 `4c12af30-…-1.png`），仅允许字母、数字、点、下划线、连字符。
-- 图片通过 `GET /v1/files/:name` 下载（需 Bearer 鉴权，与其它 `/v1` 接口一致），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（png/jpeg/gif/webp），文件名非法返回 `400`，文件不存在返回 `404`。
-- 安全注意：图片可能含私密内容，下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存（`CF-Cache-Status: BYPASS`），每次下载都重新鉴权。不要把 `files/` 下的文件放到公开免鉴权路径。
+- 图片通过 `GET /v1/files/:name` 下载（**免 Bearer 鉴权**，知道链接即可下载，方便浏览器、`<img>` 标签与下游程序直接取用），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（png/jpeg/gif/webp），文件名非法返回 `400`，文件不存在返回 `404`。
+- 安全注意：图片下载免鉴权，凭链接即可获取；文件名含任务 UUID、不可猜测，但**不要把链接扩散给无关人员**。下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存（`CF-Cache-Status: BYPASS`）。
 
 示例（任务返回两张截图）：
 
@@ -359,8 +359,8 @@ curl -X POST "$BASE/v1/chat-messages" \
 - 允许文字说明与视频混排，但视频行必须独占一行、以 `视频文件(` 开头。
 - 下游识别正则（按行匹配）：`^视频文件\((https?://[^)\s]+)\)$`
 - 视频文件由执行器保存到服务端的 `files/` 目录，文件名规范为 `<任务uuid>-<序号>.mp4`（或 `.webm`)，仅允许字母、数字、点、下划线、连字符。
-- 视频通过 `GET /v1/files/:name` 下载（需 Bearer 鉴权，与其它 `/v1` 接口一致），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（mp4/webm），文件名非法返回 `400`，文件不存在返回 `404`。
-- 安全注意：视频可能含私密内容，下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存，每次下载都重新鉴权。不要把 `files/` 下的文件放到公开免鉴权路径。
+- 视频通过 `GET /v1/files/:name` 下载（**免 Bearer 鉴权**，知道链接即可下载，方便浏览器、`<video>` 标签与下游程序直接取用），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（mp4/webm），文件名非法返回 `400`，文件不存在返回 `404`。
+- 安全注意：视频下载免鉴权，凭链接即可获取；文件名含任务 UUID、不可猜测，但**不要把链接扩散给无关人员**。下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存。
 - 本规范是 muse 自有约定（Dify 官方 API 无视频结果标准）。
 
 示例：
@@ -400,8 +400,8 @@ curl -X POST "$BASE/v1/chat-messages" \
 - 允许文字说明与文件混排，但文件行必须独占一行、以 `其他文件(` 开头。
 - 下游识别正则（按行匹配）：`^其他文件\((https?://[^)\s]+)\)$`
 - 文件由执行器保存到服务端的 `files/` 目录，文件名规范为 `<任务uuid>-<序号>.<扩展名>`（如 `4c12af30-…-1.pdf`），仅允许字母、数字、点、下划线、连字符。
-- 文件通过 `GET /v1/files/:name` 下载（需 Bearer 鉴权，与其它 `/v1` 接口一致），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（常见文档/压缩包类型已映射，未知类型回 `application/octet-stream`），文件名非法返回 `400`，文件不存在返回 `404`。
-- 安全注意：文件可能含私密内容，下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存，每次下载都重新鉴权。不要把 `files/` 下的文件放到公开免鉴权路径。
+- 文件通过 `GET /v1/files/:name` 下载（**仍需 Bearer 鉴权**，与图片/视频免鉴权不同），公网地址形如 `https://muse_api.x24hrcom.dpdns.org/v1/files/<文件名>`；按扩展名返回 `Content-Type`（常见文档/压缩包类型已映射，未知类型回 `application/octet-stream`），文件名非法返回 `400`，文件不存在返回 `404`。
+- 安全注意：文件可能含私密内容，下载响应带 `Cache-Control: no-store`，Cloudflare 边缘及任何中间缓存都不会留存，每次下载都重新鉴权。不要另行把这类文件放到公开免鉴权路径。
 - 本规范是 muse 自有约定（Dify 官方 API 无通用文件结果标准）。
 
 示例（任务返回一份 PDF 报告和一个 CSV）：
@@ -433,7 +433,7 @@ v1 错误体为 `{"status":<HTTP>,"code":"<snake_case>","message":"<原因>"}`�
 
 - `user` 在 Dify 中多处必填；本接口为兼容现有调用方保持选填，传入后按用户隔离过滤会话/消息。
 - `metadata.usage` 的 token 计数恒为 0（自研执行器，无模型计费统计），不要用于成本核算。
-- 文件上传与附件：支持 `POST /v1/files/upload`（仅图片 ≤10MB，Dify 兼容；见「文件上传」一节），上传后可在 `POST /v1/chat-messages` 的 `files` 参数中按 `upload_file_id` 引用（`type` 仅 `image`、`transfer_method` 仅 `local_file`，单个任务最多 5 个，服务端校验 id 真实存在，否则 `400`）。执行器按 id 精确读取 `files/` 下对应图片处理；若任务文本要求处理上传图片但未传 `files`，执行器会直接标记失败，**严禁**按「最新上传文件」猜测（猜错会产出看似正确实则错误的答案，比报错危害大）。`GET /v1/parameters` 中文件上传能力声明为图片 `local_file` 可用。另见「图片结果规范」「视频结果规范」：`GET /v1/files/:name` 是 muse 自有的图片/视频/其他文件结果下载接口（非 Dify 标准）。
+- 文件上传与附件：支持 `POST /v1/files/upload`（仅图片 ≤10MB，Dify 兼容；见「文件上传」一节），上传后可在 `POST /v1/chat-messages` 的 `files` 参数中按 `upload_file_id` 引用（`type` 仅 `image`、`transfer_method` 仅 `local_file`，单个任务最多 5 个，服务端校验 id 真实存在，否则 `400`）。执行器按 id 精确读取 `files/` 下对应图片处理；若任务文本要求处理上传图片但未传 `files`，执行器会直接标记失败，**严禁**按「最新上传文件」猜测（猜错会产出看似正确实则错误的答案，比报错危害大）。`GET /v1/parameters` 中文件上传能力声明为图片 `local_file` 可用。另见「图片结果规范」「视频结果规范」：`GET /v1/files/:name` 是 muse 自有的图片/视频/其他文件结果下载接口（非 Dify 标准），其中图片/视频下载免鉴权、其他文件仍需鉴权。
 - 不支持 `POST /v1/completion-messages`（文本补全模式）；本接口定位为 Agent 任务执行。
 - 不支持会话变量（`GET/PUT /v1/conversations/:id/variables`）、应用反馈列表（`GET /v1/app/feedbacks`）。
 - 推荐问题接口存在但返回空列表（暂不生成推荐追问）。
@@ -515,5 +515,5 @@ https://translate-tumbling-lankiness.ngrok-free.dev
 ## 注意事项
 
 - 公网调用请使用固定域名 `https://muse_api.x24hrcom.dpdns.org`，n8n 等调用方无需跟随隧道地址改动。
-- Token 是唯一的鉴权凭证，请妥善保管。
+- Token 是主要的鉴权凭证，请妥善保管（例外：生成的图片/视频凭下载链接免鉴权获取，链接不要扩散给无关人员）。
 - `answer` / `result` 字段为纯文本，执行器会把关键结果、文件路径、链接写在里面。

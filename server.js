@@ -16,7 +16,7 @@
 //   GET  /v1/messages/:message_id/suggested  推荐问题（暂返回空列表）
 //   POST /v1/messages/:message_id/feedbacks  对结果打分（like/dislike，null 撤销）
 //   GET  /v1/parameters  /v1/meta  /v1/info  应用元信息
-//   GET  /v1/files/:name  文件下载（图片/视频/其他文件结果规范，需鉴权）
+//   GET  /v1/files/:name  文件下载（图片/视频免鉴权，其他文件需鉴权）
 //   POST /v1/files/upload  图片上传（multipart/form-data，仅图片 ≤10MB，Dify 兼容，需鉴权）
 //   错误格式统一为 Dify 风格：{"status": <http>, "code": "<snake>", "message": "<原因>"}
 //   （多了 status 字段；code 命名为 muse 方言，见 API.md）
@@ -67,6 +67,10 @@ const FILE_CT = {
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.epub': 'application/epub+zip',
 };
+
+// 生成的图片/视频下载免鉴权（知道链接即可下载，方便浏览器/<img>/<video>/下游程序直接取用）。
+// 文件名含任务 UUID、不可猜测；其他类型文件（pdf/zip/json 等）仍需 Bearer 鉴权。
+const PUBLIC_MEDIA_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm']);
 
 // 上传限制：仅图片，单文件 ≤10MB
 const UPLOAD_MAX_MB = 10;
@@ -277,6 +281,22 @@ function authorized(req) {
   const a = Buffer.from(h);
   const b = Buffer.from(`Bearer ${TOKEN}`);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// 文件下载：文件名白名单校验 + 仅读 files/ 目录；调用方决定是否先过鉴权闸门
+// （图片/视频免鉴权直达，其他文件鉴权后才走到这里）
+function serveDownload(res, name) {
+  if (!FILE_NAME_RE.test(name)) {
+    return difyErr(res, 400, 'invalid_param', 'Invalid file name.');
+  }
+  const fp = path.join(FILES_DIR, name);
+  let st = null;
+  try { st = fs.statSync(fp); } catch { /* 不存在 */ }
+  if (!st || !st.isFile()) return difyErr(res, 404, 'not_found', 'File not found.');
+  const ct = FILE_CT[path.extname(name).toLowerCase()] || 'application/octet-stream';
+  // no-store：禁止 Cloudflare 边缘及任何中间缓存留存，每次下载都回源取最新文件
+  res.writeHead(200, { 'Content-Type': ct, 'Content-Length': st.size, 'Cache-Control': 'no-store' });
+  return fs.createReadStream(fp).pipe(res);
 }
 
 function readBody(req) {
@@ -492,6 +512,15 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/health' && req.method === 'GET') {
       return send(res, 200, { ok: true, time: new Date().toISOString() });
+    }
+
+    // 图片/视频下载免鉴权：先于鉴权闸门处理；其他扩展名不匹配则落到闸门后按鉴权下载
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/files/')) {
+      let pubName = null;
+      try { pubName = decodeURIComponent(url.pathname.slice('/v1/files/'.length)); } catch { pubName = null; }
+      if (pubName && PUBLIC_MEDIA_EXTS.has(path.extname(pubName).toLowerCase())) {
+        return serveDownload(res, pubName);
+      }
     }
 
     if (!authorized(req)) {
@@ -875,21 +904,10 @@ const server = http.createServer(async (req, res) => {
       return; // 响应在 finish/fail 回调中发出
     }
 
-    // 文件下载（图片/视频/其他文件结果规范：文件名白名单校验 + 仅读 files/ 目录，需 Bearer 鉴权）
+    // 文件下载（鉴权后到达此处的是其他文件；图片/视频已在鉴权闸门前免鉴权处理）
     if (req.method === 'GET' && url.pathname.startsWith('/v1/files/')) {
       const name = decodeURIComponent(url.pathname.slice('/v1/files/'.length));
-      if (!FILE_NAME_RE.test(name)) {
-        return difyErr(res, 400, 'invalid_param', 'Invalid file name.');
-      }
-      const fp = path.join(FILES_DIR, name);
-      let st = null;
-      try { st = fs.statSync(fp); } catch { /* 不存在 */ }
-      if (!st || !st.isFile()) return difyErr(res, 404, 'not_found', 'File not found.');
-      const ct = FILE_CT[path.extname(name).toLowerCase()] || 'application/octet-stream';
-      // no-store：图片可能含私密内容，禁止 Cloudflare 边缘及任何中间缓存留存，
-      // 避免已鉴权响应被缓存后以无鉴权 HIT 形式泄露
-      res.writeHead(200, { 'Content-Type': ct, 'Content-Length': st.size, 'Cache-Control': 'no-store' });
-      return fs.createReadStream(fp).pipe(res);
+      return serveDownload(res, name);
     }
 
     // ============ 未知路径 ============
