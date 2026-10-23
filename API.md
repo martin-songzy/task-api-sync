@@ -440,7 +440,7 @@ v1 错误体为 `{"status":<HTTP>,"code":"<snake_case>","message":"<原因>"}`�
 
 ## 数据保存说明
 
-- 每个任务自动落盘为 `tasks/<id>.json`（即 `message_id`），包含 query、会话 ID、控制 ID（`task_id`）、状态、结果、反馈和时间戳，持久保存。
+- 每个任务自动落盘为 `tasks/<id>.json`（即 `message_id`），包含 query、会话 ID、控制 ID（`task_id`）、状态、结果、反馈和时间戳，持久保存。另含 `conversation_id_provided` 布尔字段：调用方显式传入 `conversation_id` 时为 `true`，未传（服务端自动生成新会话）时为 `false`——服务端落盘的会话 ID 本身无法区分这两种情况，归档等下游逻辑靠此字段分组。
 - 任务上下文自动记入 `context.jsonl`（JSONL，每行一条事件），只保留最近 30 条，超出自动淘汰最旧记录。事件带 `conversation_id`，执行器处理新任务前优先读同一会话的最近 8 条。
 - 上下文三类事件：`task_created`（提交时）、`task_status`（状态流转时）、`execution_notes`（执行器写入的执行过程摘要；流式模式下以 `agent_thought` 实时推送）。
 - 查看执行情况：`GET /v1/messages` 看问答与执行摘要；服务器 `server.log` 看请求日志；`~/hooks/logs/task-inbox.jsonl` 看执行器取走任务的记录。
